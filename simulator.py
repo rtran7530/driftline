@@ -553,10 +553,11 @@ class GBMSimulator:
     parallelism for the compute-heavy path generation without the
     inter-process communication overhead of spawned subprocesses.
 
-    Seed strategy: each worker receives i * 10_000 + int(time.time() % 1000).
-    Seeds are always distinct across workers within a run. The time component
-    makes successive runs non-deterministic by design. Pass a fixed integer
-    to the seed_base parameter of run() to override this for reproducibility.
+    Seed strategy: each worker receives i * 10_000 + seed_base. Seeds are
+    always distinct across workers within a run. When seed_base is not
+    provided, it defaults to time.time_ns() so successive runs are
+    non-deterministic by design. Pass a fixed integer to the seed_base
+    parameter of run() to override this for reproducibility.
     """
 
     def __init__(self, params: GBMParams, n_workers: Optional[int] = None):
@@ -578,10 +579,10 @@ class GBMSimulator:
         Parameters
         ----------
         seed_base : optional integer to fix RNG seeds across all workers.
-                    If None, seeds are derived from the current time (non-deterministic).
+                    If None, defaults to time.time_ns() (non-deterministic).
         """
         if seed_base is None:
-            seed_base = int(time.time() % 1000)
+            seed_base = time.time_ns()
 
         tracemalloc.start()
         t0 = time.perf_counter()
