@@ -318,6 +318,14 @@ class RiskMetrics:
     var_99_pct:     float
     cvar_95_pct:    float
     cvar_99_pct:    float
+    mdd_95:         float
+    mdd_99:         float
+    mdd_cvar_95:    float
+    mdd_cvar_99:    float
+    mdd_95_pct:     float
+    mdd_99_pct:     float
+    mdd_cvar_95_pct: float
+    mdd_cvar_99_pct: float
     barrier_breach: float
     initial_value:  float
     barrier_level:  float
@@ -331,6 +339,11 @@ def compute_risk(portfolio_values: np.ndarray, params: GBMParams) -> RiskMetrics
     CVaR_alpha = mean( losses[ losses >= VaR_alpha ] )
     where losses = V0 - V_T  (positive = money lost).
 
+    MDD_alpha  = percentile(max_drawdowns, alpha * 100)
+    MDD-CVaR_alpha = mean( max_drawdowns[ max_drawdowns >= MDD_alpha ] )
+    where max_drawdowns is the worst peak-to-trough dollar decline within
+    each path: max_t( running_peak(t) - V(t) ).
+
     Barrier breach probability = fraction of paths where V(t) < 0.75 * V0
     at any point during the simulation lifetime.
     """
@@ -343,6 +356,15 @@ def compute_risk(portfolio_values: np.ndarray, params: GBMParams) -> RiskMetrics
     cvar_95 = float(np.mean(losses[losses >= var_95]))
     cvar_99 = float(np.mean(losses[losses >= var_99]))
 
+    running_peak  = np.maximum.accumulate(portfolio_values, axis=1)
+    path_drawdown = running_peak - portfolio_values
+    max_drawdowns = np.max(path_drawdown, axis=1)
+
+    mdd_95      = float(np.percentile(max_drawdowns, 95))
+    mdd_99      = float(np.percentile(max_drawdowns, 99))
+    mdd_cvar_95 = float(np.mean(max_drawdowns[max_drawdowns >= mdd_95]))
+    mdd_cvar_99 = float(np.mean(max_drawdowns[max_drawdowns >= mdd_99]))
+
     barrier        = V0 * 0.75
     breached       = np.any(portfolio_values < barrier, axis=1)
     barrier_breach = float(np.mean(breached))
@@ -354,6 +376,12 @@ def compute_risk(portfolio_values: np.ndarray, params: GBMParams) -> RiskMetrics
         var_99_pct=(var_99  / V0) * 100,
         cvar_95_pct=(cvar_95 / V0) * 100,
         cvar_99_pct=(cvar_99 / V0) * 100,
+        mdd_95=mdd_95,         mdd_99=mdd_99,
+        mdd_cvar_95=mdd_cvar_95, mdd_cvar_99=mdd_cvar_99,
+        mdd_95_pct=(mdd_95      / V0) * 100,
+        mdd_99_pct=(mdd_99      / V0) * 100,
+        mdd_cvar_95_pct=(mdd_cvar_95 / V0) * 100,
+        mdd_cvar_99_pct=(mdd_cvar_99 / V0) * 100,
         barrier_breach=barrier_breach,
         initial_value=V0,
         barrier_level=barrier,
@@ -740,6 +768,12 @@ def benchmark(
     print(f"\n  Conditional VaR  (Expected Shortfall)")
     print(f"    CVaR 95%  : ${risk.cvar_95:>10.2f}  ({risk.cvar_95_pct:.2f}% of portfolio)")
     print(f"    CVaR 99%  : ${risk.cvar_99:>10.2f}  ({risk.cvar_99_pct:.2f}% of portfolio)")
+    print(f"\n  Maximum Drawdown  (worst peak-to-trough decline within each path)")
+    print(f"    MDD  95%  : ${risk.mdd_95:>10.2f}  ({risk.mdd_95_pct:.2f}% of portfolio)")
+    print(f"    MDD  99%  : ${risk.mdd_99:>10.2f}  ({risk.mdd_99_pct:.2f}% of portfolio)")
+    print(f"\n  Conditional MDD  (Expected Shortfall)")
+    print(f"    MDD-CVaR 95%  : ${risk.mdd_cvar_95:>10.2f}  ({risk.mdd_cvar_95_pct:.2f}% of portfolio)")
+    print(f"    MDD-CVaR 99%  : ${risk.mdd_cvar_99:>10.2f}  ({risk.mdd_cvar_99_pct:.2f}% of portfolio)")
     print(f"\n  Barrier Breach  (portfolio < 75% of V₀ at any point)")
     print(f"    Probability   :  {risk.barrier_breach * 100:>9.4f}%")
 
