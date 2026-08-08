@@ -1,4 +1,4 @@
-# Driftline — High-Performance GBM Portfolio Simulator
+# Driftline - High-Performance GBM Portfolio Simulator
 
 Driftline is a high-performance Monte Carlo simulation engine for multi-asset portfolios under correlated Geometric Brownian Motion. It generates over one million price paths using fully vectorized matrix operations, with optional periodic rebalancing.
 
@@ -16,7 +16,7 @@ compute_portfolio_values()       → portfolio PV (n_paths, n_steps+1)
 compute_risk()                   → RiskMetrics
 ```
 
-Each stage is fully vectorized. No Python loops iterate over paths or timesteps.
+Each stage is fully vectorized.
 
 ---
 
@@ -289,6 +289,14 @@ Observed throughput on an 8-core machine (3-asset portfolio, 252 steps, float32)
 The rebalancing overhead (~11%) is dominated by the float32 → float64 upcast in `compute_portfolio_values`, not by the segment iteration itself. The segment loop runs 4 times for quarterly rebalancing regardless of path count.
 
 Under heavy workloads, the simulation's performance is limited by memory bandwidth rather than CPU processing speed. If peak RAM usage is a concern, the large price-path matrices can be processed in sequential batches to reduce memory consumption.
+
+---
+
+## Author
+
+**Robert Tran**  
+Applied Mathematics & Finance \
+San Diego State University
 
 ---
 
