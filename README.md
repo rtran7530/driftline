@@ -23,111 +23,70 @@ compute_risk()                   → RiskMetrics
 
 ### Geometric Brownian Motion
 
-Driftline models asset price dynamics with **geometric Brownian motion (GBM)**, a continuous-time stochastic process widely used in mathematical finance. Each asset \(i\) evolves according to the stochastic differential equation:
+Each asset $i$ evolves according to the stochastic differential equation:
 
-$$
-dS_i(t) = \mu_i S_i(t)\, dt + \sigma_i S_i(t)\, dW_i(t)
-$$
+$$dS_i(t) = \mu_i S_i(t)\, dt + \sigma_i S_i(t)\, dW_i(t)$$
 
-where \(S_i(t)\) is the asset price, \(\mu_i\) is the annualized drift, \(\sigma_i\) is the annualized volatility, and \(W_i(t)\) is a standard Wiener process. The exact discrete solution over a timestep \(\Delta t = T / N\) is:
+where $\mu_i$ is the annualized drift, $\sigma_i$ is the annualized volatility, and $W_i(t)$ is a standard Wiener process. The exact discrete solution over a timestep $\Delta t = T / N$ is:
 
-$$
-S_i(t + \Delta t) = S_i(t) \cdot \exp\!\left[
-\left(\mu_i - \tfrac{1}{2}\sigma_i^2\right)\Delta t
-+ \sigma_i \sqrt{\Delta t}\, Z_i
-\right]
-$$
+$$S_i(t + \Delta t) = S_i(t) \cdot \exp\!\left[\left(\mu_i - \tfrac{1}{2}\sigma_i^2\right)\Delta t + \sigma_i \sqrt{\Delta t}\, Z_i\right]$$
 
-where \(Z_i \sim \mathcal{N}(0, 1)\). The correction term \(-\frac{1}{2}\sigma_i^2\) follows from Itô's lemma and ensures that the expected asset price satisfies:
-
-$$
-\mathbb{E}[S_i(t)] = S_{0,i} e^{\mu_i t}
-$$
-
-Without this correction, the simulated asset prices would have an incorrect expected value.
+where $Z_i \sim \mathcal{N}(0, 1)$. This is the Itô-correct form. The $-\frac{1}{2}\sigma_i^2$ term corrects for the convexity of the exponential under the log-normal distribution, ensuring $\mathbb{E}[S_i(t)] = S_{0,i}\, e^{\mu_i t}$. Without it, the simulated paths would have a systematically high mean.
 
 ### Correlated Shocks via Cholesky Decomposition
 
-Driftline models cross-asset dependence through a symmetric positive-definite correlation matrix \(\rho \in \mathbb{R}^{n \times n}\) with unit diagonal. Its Cholesky factorization yields a lower triangular matrix \(L\) such that:
+Asset dependence is captured through a symmetric positive semi-definite correlation matrix $\rho \in \mathbb{R}^{n \times n}$ with unit diagonal. To generate correlated shocks from independent standard normals, the Cholesky factorization produces a lower triangular matrix $L$ such that:
 
-$$
-\rho = LL^\top
-$$
+$$\rho = L L^\top$$
 
-Independent standard normal samples \(Z \sim \mathcal{N}(0, I)\) produce correlated samples through the transformation:
+Independent draws $Z \sim \mathcal{N}(0, I)$ are transformed to:
 
-$$
-Z_{\text{corr}} = ZL^\top
-$$
+$$Z_{\text{corr}} = Z L^\top$$
 
-The resulting covariance matrix is:
+yielding $\mathbb{E}[Z_{\text{corr}} Z_{\text{corr}}^\top] = L L^\top = \rho$. 
 
-$$
-\operatorname{Cov}(Z_{\text{corr}}) = LL^\top = \rho
-$$
-
-In the implementation, \(Z\) has shape:
+In the implementation, $Z$ has shape:
 
 $$
 (N_{\text{paths}}, N_{\text{steps}}, N_{\text{assets}})
 $$
 
-The asset axis is last, so the correlation transform can use a batched matrix multiplication without an explicit copy of the full random tensor.
+with the asset axis placed last. This allows $Z L^\top$ to be executed as a single BLAS matrix multiplication without intermediate copies.
 
 ### Portfolio Value
 
-Let \(w_i\) denote the fractional weight of asset \(i\), with \(\sum_i w_i = 1\), and let \(V_0\) denote the initial portfolio value. The initial share count for asset \(i\) is:
+Let $w_i$ be the fractional weight of asset $i$ with $\sum_i w_i = 1$, and $V_0 = \sum_i S_{0,i}$ the initial portfolio value. The number of shares held in asset $i$ at inception is:
 
-$$
-\text{shares}_i = \frac{w_i V_0}{S_{0,i}}
-$$
+$$\text{shares}_i = \frac{w_i V_0}{S_{0,i}}$$
 
-For a buy-and-hold portfolio, the value at time \(t\) is:
+Portfolio value at time $t$ is then:
 
-$$
-V(t) = \sum_{i=1}^{n} \text{shares}_i S_i(t)
-= V_0 \sum_{i=1}^{n} \frac{w_i S_i(t)}{S_{0,i}}
-$$
+$$V(t) = \sum_{i=1}^{n} \text{shares}_i \cdot S_i(t) = V_0 \sum_{i=1}^{n} \frac{w_i S_i(t)}{S_{0,i}}$$
 
-Its analytical expected value provides a reference for the simulated mean path:
+The analytical expectation, used as the mean reference path in plots, is:
 
-$$
-\mathbb{E}[V(t)] = V_0 \sum_{i=1}^{n} w_i e^{\mu_i t}
-$$
-
-This expectation applies to the buy-and-hold portfolio, not to a portfolio that undergoes periodic rebalancing.
+$$\mathbb{E}[V(t)] = V_0 \sum_{i=1}^{n} w_i e^{\mu_i t}$$
 
 ### Portfolio Rebalancing
 
-At each rebalancing date \(t_r\), Driftline resets the portfolio to its target weights. The updated share holdings are:
+At each rebalancing date $t_r$, the portfolio is reset to the target weights. Share holdings are updated as:
 
-$$
-\text{shares}_i(t_r^+) =
-\frac{w_i V(t_r)}{S_i(t_r)}
-$$
+$$\text{shares}_i(t_r^+) = \frac{w_i \cdot V(t_r)}{S_i(t_r)}$$
 
-This operation preserves portfolio value because no external cash enters or leaves the portfolio. It also restores the target allocation after asset price movements cause the weights to drift. The `compute_portfolio_values()` function processes rebalancing events in a loop and vectorizes each event across all simulated paths. The `_worker()` function remains unchanged.
+This operation conserves portfolio value. No cash enters or leaves, and it eliminates drift from the target allocation caused by differential asset growth. The procedure is implemented in `compute_portfolio_values()` as a loop over rebalancing events (at most `T × freq` iterations), each fully vectorized over all paths simultaneously. `_worker()` is completely unaffected.
 
-### Value at Risk and Conditional Value at Risk
+### Value at Risk and Conditional VaR
 
-Let \(L = V_0 - V_T\) denote terminal portfolio loss, where positive values represent losses. For confidence level \(\alpha\), Value at Risk (VaR) is:
+Let $L = V_0 - V_T$ denote the terminal loss (positive = money lost). Given significance level $\alpha$:
 
-$$
-\operatorname{VaR}_{\alpha} = F_L^{-1}(\alpha)
-$$
+$$\text{VaR}_\alpha = F_L^{-1}(\alpha)$$
 
-Conditional Value at Risk (CVaR), also known as Expected Shortfall, is:
+$$\text{CVaR}_\alpha = \mathbb{E}\!\left[L \;\middle|\; L \geq \text{VaR}_\alpha\right]$$
 
-$$
-\operatorname{CVaR}_{\alpha}
-= \mathbb{E}\!\left[
-L \mid L \geq \operatorname{VaR}_{\alpha}
-\right]
-$$
-
-VaR measures the loss threshold at confidence level \(\alpha\), while CVaR measures the average loss in the tail beyond that threshold. Driftline estimates both metrics from simulated terminal losses with `np.percentile` and a Boolean mask, without explicit Python loops.
+CVaR, also called Expected Shortfall, is the mean loss in the tail beyond VaR. Both are computed with `np.percentile` and a boolean mask, with no loops.
 
 ---
+
 ## Architecture
 
 ### Data Layout
@@ -139,12 +98,7 @@ portfolio_values : float32  (n_paths, n_steps+1)
 
 Assets occupy axis 1. The time axis is last. `np.cumprod(axis=2)` traverses each row sequentially in memory, which is cache-optimal under C-order layout.
 
-`float32` halves the storage requirements relative to `float64`. For a
-3-asset simulation with 1M paths and 252 steps, `asset_paths` occupies
-approximately 3.04 GB in `float32` versus 6.07 GB in `float64`, excluding
-intermediate arrays and other memory overhead. The `portfolio_values`
-array requires an additional 1.01 GB in `float32`. Set
-`params.dtype = np.float64` when higher numerical precision is required.
+`float32` halves storage requirements relative to `float64` and can reduce memory traffic. For a 3-asset simulation at 1M paths × 252 steps, `asset_paths` occupies approximately 3.04 GB in `float32` versus 6.07 GB in `float64`. Set `params.dtype = np.float64` when higher numerical precision is required.
 
 ### Concurrency Model
 
