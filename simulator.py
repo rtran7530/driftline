@@ -1,9 +1,5 @@
 """
 Driftline — High-Performance GBM Portfolio Simulator
-====================================
-A vectorized simulation engine designed to project multi-asset pathways under
-correlated market conditions using geometric Brownian motion, with optional
-periodic portfolio rebalancing.
 """
 
 import time
@@ -26,8 +22,7 @@ ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 # Rebalancing Frequency Constants
 # ---------------------------------------------------------------------------
-# All values assume n_steps=252 (one trading year). Pass an integer directly
-# if your simulation uses a different step count.
+# All values assume n_steps=252 (one trading year).
 
 REBAL_FREQ: dict[str, Optional[int]] = {
     "daily":      1,
